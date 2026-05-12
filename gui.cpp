@@ -1,5 +1,6 @@
 #define IMGUI_DEFINE_MATH_OPERATORS
 #include "gui.hpp"
+#include "LuaEngine.hpp"
 #include "../include/Overlay.hpp"
 #include "../include/Globals.hpp"
 #include <string>
@@ -279,7 +280,9 @@ namespace gui {
         ImGui::GetWindowDrawList()->AddCircleFilled(check_pos + ImVec2(circle_pos + 5.0f, h / 2.0f), 6.0f, ImColor(255, 255, 255, 255), 16);
 
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.8f, 0.8f, 0.8f, 1.0f));
-        ImGui::RenderText(ImVec2(total_bb.Min.x, total_bb.Min.y + (h - label_size.y) * 0.5f), label);
+        // Clip text to avoid overlap with color pickers/toggles (reserve ~80px on the right)
+        float maxTextWidth = full_width - 85.0f;
+        ImGui::RenderTextClipped(total_bb.Min, total_bb.Min + ImVec2(maxTextWidth, h), label, NULL, &label_size, ImVec2(0.0f, 0.5f), &total_bb);
         ImGui::PopStyleColor();
 
         return pressed;
@@ -427,7 +430,14 @@ namespace gui {
     }
 
     void ColorPicker(const char* id, float* col) {
-        ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - 70.0f); 
+        float avail = SafeContentWidth();
+        float btnSize = 18.0f;
+        float offsetFromRight = 68.0f; // Positioned before the checkbox toggle
+        
+        ImGui::SameLine();
+        float startX = ImGui::GetCursorPosX();
+        // Move cursor to the desired position relative to the content width
+        ImGui::SetCursorPosX(startX + avail - offsetFromRight - btnSize);
         
         ImGuiColorEditFlags flags =
             ImGuiColorEditFlags_NoInputs |
@@ -607,7 +617,7 @@ namespace gui {
         current_section_max = pos + ImVec2(width, height);
         
         if (height < 60.0f) {
-            height = 200.0f; 
+            height = 320.0f; // Increased default height for better initial look
         }
 
         ImDrawList* draw_list = ImGui::GetWindowDrawList();
@@ -894,10 +904,22 @@ namespace gui {
         ImVec2 window_pos = ImGui::GetWindowPos();
         ImVec2 window_size = ImGui::GetWindowSize();
         ImDrawList* draw_list = ImGui::GetWindowDrawList();
+        LuaMenuGlowStyle luaGlow = LuaEngine::GetMenuGlowStyle();
         
         // Background & Border & Shadows
         // Fake drop shadow
         draw_list->AddRectFilled(window_pos - ImVec2(1, -5), window_pos + window_size + ImVec2(5, 5), ImGui::GetColorU32(ImVec4(0, 0, 0, 0.35f)), 10.0f);
+        if (luaGlow.enabled) {
+            ImVec2 expand(luaGlow.thickness, luaGlow.thickness);
+            draw_list->AddRect(
+                window_pos - expand,
+                window_pos + window_size + expand,
+                ImGui::GetColorU32(ImVec4(luaGlow.r, luaGlow.g, luaGlow.b, luaGlow.a)),
+                luaGlow.rounding,
+                0,
+                luaGlow.thickness
+            );
+        }
         
         draw_list->AddRectFilled(window_pos, window_pos + window_size, ImGui::GetColorU32(UI::bgColor), 10.0f);
         draw_list->AddRect(window_pos, window_pos + window_size, ImGui::GetColorU32(UI::borderOuter), 10.0f, 0, 1.5f);
@@ -932,14 +954,21 @@ namespace gui {
         ImGui::PopFont();
 
         ImGui::SetCursorPosY(80.0f);
-        const char* tabs[] = { "Combat", "Visuals", "Misc", "Grenades", "Configs" };
-        ID3D11ShaderResourceView* tabIcons[] = { overlay.TabAimIcon, overlay.TabVisualsIcon, overlay.TabMiscIcon, nullptr, nullptr };
-        const char* icons[] = { "A", "B", "C", "D", "E" }; // Placeholder icons if IconFont supports them
+        const char* tabs[] = { "Combat", "Visuals", "Misc", "Grenades", "Configs", "Lua" };
+        ID3D11ShaderResourceView* tabIcons[] = { 
+            overlay.TabCombatIcon, 
+            overlay.TabVisualsIcon, 
+            overlay.TabMiscIcon, 
+            overlay.TabGrenadesIcon, 
+            overlay.TabConfigsIcon,
+            overlay.TabLuaIcon
+        };
+        const char* icons[] = { "A", "B", "C", "D", "E", "L" }; // Placeholder icons if IconFont supports them
         
         static int prevTab = settings.currentTab;
         static std::chrono::steady_clock::time_point tabChangeTime = std::chrono::steady_clock::now();
         
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < 6; i++) {
             ImGui::SetCursorPosX(10.0f);
             
             bool clicked = Tab(tabIcons[i], icons[i], tabs[i], settings.currentTab == i);
@@ -947,6 +976,18 @@ namespace gui {
             if (clicked && settings.currentTab != i) {
                 prevTab = settings.currentTab;
                 settings.currentTab = i;
+                tabChangeTime = std::chrono::steady_clock::now();
+            }
+            ImGui::Spacing();
+        }
+        int luaTabCount = LuaEngine::GetTabCount();
+        for (int i = 0; i < luaTabCount; i++) {
+            ImGui::SetCursorPosX(10.0f);
+            int tabId = 6 + i;
+            bool clicked = Tab(overlay.TabLuaIcon, "L", LuaEngine::GetTabName(i), settings.currentTab == tabId);
+            if (clicked && settings.currentTab != tabId) {
+                prevTab = settings.currentTab;
+                settings.currentTab = tabId;
                 tabChangeTime = std::chrono::steady_clock::now();
             }
             ImGui::Spacing();
@@ -1244,7 +1285,17 @@ namespace gui {
                 ColorPicker("##dropCol", settings.visuals.droppedWeaponColor);
                 Checkbox("Grenade Trajectory", &settings.visuals.grenadePrediction);
                 Checkbox("Grenade World ESP", &settings.visuals.grenadeWorldEsp);
-                ImGui::Text("Grenade colors (trajectory + world)");
+                
+                {
+                    float avail = SafeContentWidth();
+                    ImVec2 pos = ImGui::GetCursorScreenPos();
+                    float h = 22.0f;
+                    // Clip text to reserve space for buttons on the right
+                    ImGui::RenderTextClipped(pos, pos + ImVec2(avail - 85.0f, h), "Grenade colors (trajectory + world)", NULL, NULL, ImVec2(0.0f, 0.5f));
+                    ImGui::ItemSize(ImVec2(avail, h));
+                    ImGui::SetCursorScreenPos(pos); // Reset for SameLine
+                }
+                
                 ImGui::SameLine();
                 {
                     ImGuiColorEditFlags gfl =
@@ -1468,6 +1519,12 @@ namespace gui {
                 ImGui::PopStyleColor(3);
             EndSection();
         }
+        else if (settings.currentTab == 5) {
+            LuaEngine::RenderManager();
+        }
+        else if (settings.currentTab >= 6) {
+            LuaEngine::RenderMenu(settings.currentTab - 6);
+        }
         ImGui::EndChild();
         ImGui::PopStyleVar(); // tab fade alpha
 
@@ -1482,6 +1539,8 @@ namespace gui {
             draw_list->AddText(ImVec2(center.x - textSize.x * 0.5f + 1, center.y - textSize.y * 0.5f + 1), ImGui::GetColorU32(ImVec4(0, 0, 0, 0.9f)), bindText);
             draw_list->AddText(ImVec2(center.x - textSize.x * 0.5f, center.y - textSize.y * 0.5f), ImGui::GetColorU32(ImVec4(1, 1, 1, 1)), bindText);
         }
+
+        LuaEngine::RunMenuRender(window_pos.x, window_pos.y, window_size.x, window_size.y);
 
         ImGui::End();
         

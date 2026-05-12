@@ -153,9 +153,12 @@ bool Overlay::Setup(const std::string& targetClassName, const std::string& targe
         return nullptr;
     };
 
-    TabAimIcon = loadTabIcon("tab_aim.png");
+    TabCombatIcon = loadTabIcon("tab_combat.png");
     TabVisualsIcon = loadTabIcon("tab_visuals.png");
     TabMiscIcon = loadTabIcon("tab_misc.png");
+    TabGrenadesIcon = loadTabIcon("tab_grenades.png");
+    TabConfigsIcon = loadTabIcon("tab_configs.png");
+    TabLuaIcon = loadTabIcon("tab_lua.png");
     ESPPreviewTexture = LoadTextureFromFile(currentDir + "\\ct_t.png", &ESPPreviewWidth, &ESPPreviewHeight);
 
     ImGui::StyleColorsDark();
@@ -244,9 +247,12 @@ void Overlay::ToggleTransparency(bool transparent) {
 void Overlay::Cleanup() {
     if (CombatFemIcon) { CombatFemIcon->Release(); CombatFemIcon = nullptr; }
     if (CombatZitIcon) { CombatZitIcon->Release(); CombatZitIcon = nullptr; }
-    if (TabAimIcon) { TabAimIcon->Release(); TabAimIcon = nullptr; }
+    if (TabCombatIcon) { TabCombatIcon->Release(); TabCombatIcon = nullptr; }
     if (TabVisualsIcon) { TabVisualsIcon->Release(); TabVisualsIcon = nullptr; }
     if (TabMiscIcon) { TabMiscIcon->Release(); TabMiscIcon = nullptr; }
+    if (TabGrenadesIcon) { TabGrenadesIcon->Release(); TabGrenadesIcon = nullptr; }
+    if (TabConfigsIcon) { TabConfigsIcon->Release(); TabConfigsIcon = nullptr; }
+    if (TabLuaIcon) { TabLuaIcon->Release(); TabLuaIcon = nullptr; }
     ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();
